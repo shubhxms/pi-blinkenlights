@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "xcrun clang -std=c11 -Wall -Wextra -Werror -fsyntax-only blinkenlights.c && npm run typecheck --silent && node --test test/*.test.ts",
-    "typecheck": "tsc --noEmit --module nodenext --moduleResolution nodenext --target es2022 --strict --skipLibCheck --allowImportingTsExtensions index.ts patterns.ts settings.ts test/index.test.ts"
+    "test": "xcrun clang -std=c11 -Wall -Wextra -Werror -fsyntax-only blinkenlights.c && node --check coordinator.mjs && node --check scheduler.mjs && npm run typecheck --silent && node --test test/*.test.*",
+    "typecheck": "tsc --noEmit --module nodenext --moduleResolution nodenext --target es2022 --strict --skipLibCheck --allowImportingTsExtensions index.ts coordinator-client.ts patterns.ts settings.ts test/*.test.ts"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.80.10",
+    "@earendil-works/pi-tui": "^0.80.10",
     "@types/node": "^24.10.0",
     "typescript": "^5.9.3"
   },

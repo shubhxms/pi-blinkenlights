@@ -146,9 +146,9 @@ int main(int argc, char **argv) {
   if (argc < 4 || argc > MAX_PHASES + 2) return 64;
 
   char *end = NULL;
-  long timeout_seconds = strtol(argv[1], &end, 10);
-  if (!end || *end != '\0' || timeout_seconds <= 0 ||
-      timeout_seconds > 604800) {
+  long timeout_ms = strtol(argv[1], &end, 10);
+  if (!end || *end != '\0' || timeout_ms <= 0 ||
+      timeout_ms > 604800000) {
     return 64;
   }
 
@@ -198,7 +198,7 @@ int main(int argc, char **argv) {
   }
 
   struct pollfd parent = {.fd = STDIN_FILENO, .events = POLLIN | POLLHUP};
-  long remaining_ms = timeout_seconds * 1000;
+  long remaining_ms = timeout_ms;
   size_t phase_index = 0;
 
   while (running && remaining_ms > 0) {
