@@ -8,10 +8,19 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#define MIN_PHASE_MS 20
+#define MAX_PHASE_MS 60000
+#define MAX_PHASES 64
+
 typedef struct {
   IOHIDDeviceRef device;
   IOHIDElementRef element;
 } CapsLed;
+
+typedef struct {
+  bool on;
+  int duration_ms;
+} Phase;
 
 static volatile sig_atomic_t running = 1;
 
@@ -35,8 +44,10 @@ static CFMutableDictionaryRef usage_match(bool device, uint32_t page, uint32_t u
     return NULL;
   }
 
-  CFStringRef page_key = device ? CFSTR(kIOHIDDeviceUsagePageKey) : CFSTR(kIOHIDElementUsagePageKey);
-  CFStringRef usage_key = device ? CFSTR(kIOHIDDeviceUsageKey) : CFSTR(kIOHIDElementUsageKey);
+  CFStringRef page_key =
+      device ? CFSTR(kIOHIDDeviceUsagePageKey) : CFSTR(kIOHIDElementUsagePageKey);
+  CFStringRef usage_key =
+      device ? CFSTR(kIOHIDDeviceUsageKey) : CFSTR(kIOHIDElementUsageKey);
   CFDictionarySetValue(match, page_key, page_number);
   CFDictionarySetValue(match, usage_key, usage_number);
   CFRelease(page_number);
@@ -50,7 +61,8 @@ static size_t find_caps_leds(IOHIDManagerRef manager, CapsLed **result) {
 
   CFIndex device_count = CFSetGetCount(devices);
   IOHIDDeviceRef *device_list = calloc((size_t)device_count, sizeof(*device_list));
-  CFMutableDictionaryRef match = usage_match(false, kHIDPage_LEDs, kHIDUsage_LED_CapsLock);
+  CFMutableDictionaryRef match =
+      usage_match(false, kHIDPage_LEDs, kHIDUsage_LED_CapsLock);
   if (!device_list || !match) {
     free(device_list);
     if (match) CFRelease(match);
@@ -64,14 +76,19 @@ static size_t find_caps_leds(IOHIDManagerRef manager, CapsLed **result) {
 
   for (CFIndex i = 0; i < device_count; i++) {
     IOHIDDeviceRef device = device_list[i];
-    if (!IOHIDDeviceConformsTo(device, kHIDPage_GenericDesktop, kHIDUsage_GD_Keyboard)) continue;
+    if (!IOHIDDeviceConformsTo(
+            device, kHIDPage_GenericDesktop, kHIDUsage_GD_Keyboard)) {
+      continue;
+    }
 
-    CFArrayRef elements = IOHIDDeviceCopyMatchingElements(device, match, kIOHIDOptionsTypeNone);
+    CFArrayRef elements =
+        IOHIDDeviceCopyMatchingElements(device, match, kIOHIDOptionsTypeNone);
     if (!elements) continue;
 
     CFIndex element_count = CFArrayGetCount(elements);
     for (CFIndex j = 0; j < element_count; j++) {
-      IOHIDElementRef element = (IOHIDElementRef)CFArrayGetValueAtIndex(elements, j);
+      IOHIDElementRef element =
+          (IOHIDElementRef)CFArrayGetValueAtIndex(elements, j);
       CapsLed *grown = realloc(leds, (count + 1) * sizeof(*grown));
       if (!grown) break;
       leds = grown;
@@ -95,7 +112,8 @@ static bool set_leds(CapsLed *leds, size_t count, bool on) {
     IOHIDValueRef value = IOHIDValueCreateWithIntegerValue(
         kCFAllocatorDefault, leds[i].element, 0, on ? 1 : 0);
     if (!value) continue;
-    if (IOHIDDeviceSetValue(leds[i].device, leds[i].element, value) == kIOReturnSuccess) {
+    if (IOHIDDeviceSetValue(leds[i].device, leds[i].element, value) ==
+        kIOReturnSuccess) {
       changed = true;
     }
     CFRelease(value);
@@ -111,50 +129,92 @@ static void free_leds(CapsLed *leds, size_t count) {
   free(leds);
 }
 
+static bool parse_phase(const char *source, Phase *phase) {
+  if ((source[0] != '0' && source[0] != '1') || source[1] != ':') return false;
+  char *end = NULL;
+  long duration_ms = strtol(source + 2, &end, 10);
+  if (!end || *end != '\0' || duration_ms < MIN_PHASE_MS ||
+      duration_ms > MAX_PHASE_MS) {
+    return false;
+  }
+  phase->on = source[0] == '1';
+  phase->duration_ms = (int)duration_ms;
+  return true;
+}
+
 int main(int argc, char **argv) {
-  if (argc != 2) return 64;
+  if (argc < 4 || argc > MAX_PHASES + 2) return 64;
+
   char *end = NULL;
   long timeout_seconds = strtol(argv[1], &end, 10);
-  if (!end || *end != '\0' || timeout_seconds <= 0 || timeout_seconds > 604800) return 64;
+  if (!end || *end != '\0' || timeout_seconds <= 0 ||
+      timeout_seconds > 604800) {
+    return 64;
+  }
+
+  size_t phase_count = (size_t)argc - 2;
+  Phase *phases = calloc(phase_count, sizeof(*phases));
+  if (!phases) return 1;
+  for (size_t i = 0; i < phase_count; i++) {
+    if (!parse_phase(argv[i + 2], &phases[i]) ||
+        (i > 0 && phases[i].on == phases[i - 1].on)) {
+      free(phases);
+      return 64;
+    }
+  }
+  if (phases[0].on == phases[phase_count - 1].on) {
+    free(phases);
+    return 64;
+  }
 
   signal(SIGINT, stop_running);
   signal(SIGTERM, stop_running);
   signal(SIGHUP, stop_running);
 
-  IOHIDManagerRef manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
-  CFMutableDictionaryRef keyboard_match = usage_match(true, kHIDPage_GenericDesktop, kHIDUsage_GD_Keyboard);
-  if (!manager || !keyboard_match) return 1;
+  IOHIDManagerRef manager =
+      IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
+  CFMutableDictionaryRef keyboard_match =
+      usage_match(true, kHIDPage_GenericDesktop, kHIDUsage_GD_Keyboard);
+  if (!manager || !keyboard_match) {
+    free(phases);
+    return 1;
+  }
 
   IOHIDManagerSetDeviceMatching(manager, keyboard_match);
   CFRelease(keyboard_match);
   if (IOHIDManagerOpen(manager, kIOHIDOptionsTypeNone) != kIOReturnSuccess) {
     CFRelease(manager);
+    free(phases);
     return 1;
   }
 
   CapsLed *leds = NULL;
   size_t led_count = find_caps_leds(manager, &leds);
-  if (led_count == 0 || !set_leds(leds, led_count, true)) {
+  if (led_count == 0 || !set_leds(leds, led_count, phases[0].on)) {
     free_leds(leds, led_count);
     CFRelease(manager);
+    free(phases);
     return 2;
   }
 
   struct pollfd parent = {.fd = STDIN_FILENO, .events = POLLIN | POLLHUP};
   long remaining_ms = timeout_seconds * 1000;
-  bool on = true;
+  size_t phase_index = 0;
 
   while (running && remaining_ms > 0) {
-    int wait_ms = remaining_ms < 500 ? (int)remaining_ms : 500;
+    int phase_ms = phases[phase_index].duration_ms;
+    int wait_ms = remaining_ms < phase_ms ? (int)remaining_ms : phase_ms;
     int poll_result = poll(&parent, 1, wait_ms);
     if (poll_result > 0) break;
-    if (poll_result < 0 && errno != EINTR) break;
-    if (poll_result == 0) {
-      remaining_ms -= wait_ms;
-      if (remaining_ms > 0) {
-        on = !on;
-        set_leds(leds, led_count, on);
-      }
+    if (poll_result < 0) {
+      if (errno == EINTR) continue;
+      break;
+    }
+
+    remaining_ms -= wait_ms;
+    if (remaining_ms > 0) {
+      phase_index = (phase_index + 1) % phase_count;
+      set_leds(leds, led_count, phases[phase_index].on);
     }
   }
 
@@ -162,5 +222,6 @@ int main(int argc, char **argv) {
   free_leds(leds, led_count);
   IOHIDManagerClose(manager, kIOHIDOptionsTypeNone);
   CFRelease(manager);
+  free(phases);
   return 0;
 }
