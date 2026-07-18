@@ -26,13 +26,13 @@
     <text x="707" y="62" fill="#6e655f" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" text-anchor="end">BLNK–0001</text>
     <path d="M0 82H707" stroke="#b9afa1"/>
 
-    <text x="-2" y="190" fill="#342f2b" font-family="Baskerville, Iowan Old Style, Georgia, serif" font-size="86" font-style="italic" letter-spacing="-3">Blinkenlights</text>
-    <text x="2" y="231" fill="#8a6458" font-family="Baskerville, Iowan Old Style, Georgia, serif" font-size="24">Caps Lock LED notifications for Pi.</text>
+    <text x="-2" y="190" fill="#342f2b" font-family="Baskerville, Iowan Old Style, Georgia, serif" font-size="92" letter-spacing="-3.5" transform="translate(0 190) skewX(-10) translate(0 -190)">Blinkenlights</text>
+    <text x="3" y="232" fill="#8a6458" font-family="Baskerville, Iowan Old Style, Georgia, serif" font-size="25" transform="translate(0 232) skewX(-10) translate(0 -232)">Caps Lock LED notifications for Pi.</text>
 
     <g transform="translate(2 278)">
       <path d="M0 37H62V5H126V37H183V5H247V37H342V5H406V37H660" fill="none" stroke="#ded4c4" stroke-width="10"/>
       <path d="M0 37H62V5H126V37H183V5H247V37H342V5H406V37H660" fill="none" stroke="#b85c4b" stroke-width="3"/>
-      <circle cx="406" cy="5" r="5" fill="#b69a3a"/>
+      <circle cx="406" cy="5" r="5" fill="#b85c4b"/>
     </g>
 
     <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" letter-spacing="1">
