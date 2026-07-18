@@ -72,7 +72,7 @@ Blinkenlights compiles its tiny native helper on first use and caches the result
 Blinkenlights raises an alert when:
 
 - the agent settles; or
-- Pi opens a supported interactive question tool.
+- Pi opens `ask_user_question`, its structured questionnaire tool (with `question` and `questionnaire` recognized as compatibility names).
 
 The current session acknowledges its alert when you focus the terminal, press a key, start another turn, answer the question, or shut down the session. The configured timeout is the final backstop.
 
