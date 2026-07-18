@@ -1,0 +1,15 @@
+{
+  "name": "pi-caps-lock-blinker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "xcrun clang -std=c11 -Wall -Wextra -Werror -fsyntax-only caps-led.c && node --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.10",
+    "@types/node": "^24.10.0"
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}
