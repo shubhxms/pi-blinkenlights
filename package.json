@@ -1,6 +1,6 @@
 {
   "name": "pi-blinkenlights",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Physical Caps Lock LED notifications for the Pi coding agent on macOS",
   "type": "module",
   "license": "MIT",

@@ -2,29 +2,10 @@
   <img src="assets/blinkenlights.svg" alt="Blinkenlights — physical notifications for Pi on macOS" width="960">
 </p>
 
-<p align="center">
-  <a href="https://pi.dev/packages"><img alt="Pi package" src="https://img.shields.io/badge/PI_PACKAGE-ONLINE-df6f61?style=flat-square&labelColor=27252a"></a>
-  <img alt="macOS only" src="https://img.shields.io/badge/HOST-DARWIN-6979b8?style=flat-square&labelColor=27252a&logo=apple">
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/LICENSE-MIT-df6f61?style=flat-square&labelColor=27252a"></a>
-</p>
 
-<p align="center">
-  <code>A SMALL COMPUTER COURTESY // HID LED 08:02</code>
-</p>
+Blinkenlights uses the **Caps Lock indicator LED** as a physical notification light for [Pi](https://pi.dev). It starts blinking when an agent finishes, and stops when you return to the terminal.
 
----
-
-Blinkenlights turns the **Caps Lock indicator LED** into a quiet, physical notification light for [Pi](https://pi.dev). Start a long task, look elsewhere, and let the keyboard blink when the agent finishes or opens a question. Return to the terminal and the light stops.
-
-```text
-[ PI:WORKING ] ──────────> [ AGENT:SETTLED ] ──────────> [ CAPS_LED:ASSERTED ]
-                                                                  │
-                                                   terminal focus │
-                                                                  ▼
-                                                         [ ACKNOWLEDGED ]
-```
-
-No cloud service. No key injection. No change to Caps Lock state.
+It runs locally, does not emit key events, and never changes Caps Lock state.
 
 > **Why “Blinkenlights”?** [Blinkenlights](https://en.wikipedia.org/wiki/Blinkenlights) is old hacker slang—and folklore—for the diagnostic lamps that decorated mainframes. This project keeps the affectionate part: computers are simply more charming when they can blink at you.
 
@@ -72,7 +53,9 @@ Blinkenlights compiles its tiny native helper on first use and caches the result
 Blinkenlights raises an alert when:
 
 - the agent settles; or
-- Pi opens `ask_user_question`, its structured questionnaire tool (with `question` and `questionnaire` recognized as compatibility names).
+- a tool named `ask_user_question`, `question`, or `questionnaire` starts.
+
+The question-tool integration is name-based. Pi does not currently expose a generic “waiting for user input” event, so unrelated third-party tools are not detected automatically. The third-party [`@juicesharp/rpiv-ask-user-question`](https://www.npmjs.com/package/@juicesharp/rpiv-ask-user-question) package registers `ask_user_question` and works out of the box.
 
 The current session acknowledges its alert when you focus the terminal, press a key, start another turn, answer the question, or shut down the session. The configured timeout is the final backstop.
 
@@ -80,13 +63,7 @@ The current session acknowledges its alert when you focus the terminal, press a 
 
 Every Pi process connects to one per-user coordinator over a Unix socket. Only that coordinator controls the physical LED.
 
-```text
- PI / PROJECT-A ──┐
- PI / PROJECT-B ──┼──[ UNIX SOCKET ]──> COORDINATOR ──> IOKIT HELPER ──> CAPS_LED
- PI / PROJECT-C ──┘          │                 │
-                      alert / ack       one active signal
-                      preview / DND      across all sessions
-```
+The coordinator arbitrates alerts, previews, and DND state across sessions, then starts one short-lived IOKit helper for the selected output.
 
 Scheduling is deterministic:
 
