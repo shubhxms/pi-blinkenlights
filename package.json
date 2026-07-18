@@ -1,10 +1,49 @@
 {
   "name": "pi-blinkenlights",
-  "private": true,
+  "version": "0.1.0",
+  "description": "Physical Caps Lock LED notifications for the Pi coding agent on macOS",
   "type": "module",
+  "license": "MIT",
+  "author": "Shubham Shah",
+  "homepage": "https://github.com/shubhxms/pi-blinkenlights#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shubhxms/pi-blinkenlights.git"
+  },
+  "bugs": {
+    "url": "https://github.com/shubhxms/pi-blinkenlights/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-coding-agent",
+    "macos",
+    "caps-lock",
+    "notifications",
+    "blinkenlights"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "files": [
+    "assets/blinkenlights.png",
+    "assets/blinkenlights.svg",
+    "blinkenlights.c",
+    "coordinator-client.ts",
+    "coordinator.mjs",
+    "dnd.ts",
+    "index.ts",
+    "patterns.ts",
+    "scheduler.mjs",
+    "settings.ts"
+  ],
   "scripts": {
     "test": "xcrun clang -std=c11 -Wall -Wextra -Werror -fsyntax-only blinkenlights.c && node --check coordinator.mjs && node --check scheduler.mjs && npm run typecheck --silent && node --test test/*.test.*",
-    "typecheck": "tsc --noEmit --module nodenext --moduleResolution nodenext --target es2022 --strict --skipLibCheck --allowImportingTsExtensions index.ts coordinator-client.ts patterns.ts settings.ts test/*.test.ts"
+    "typecheck": "tsc --noEmit --module nodenext --moduleResolution nodenext --target es2022 --strict --skipLibCheck --allowImportingTsExtensions index.ts coordinator-client.ts patterns.ts settings.ts test/*.test.ts",
+    "prepublishOnly": "npm test"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.80.10",
@@ -12,7 +51,13 @@
     "@types/node": "^24.10.0",
     "typescript": "^5.9.3"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "pi": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ],
+    "image": "https://raw.githubusercontent.com/shubhxms/pi-blinkenlights/main/assets/blinkenlights.png"
   }
 }
