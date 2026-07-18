@@ -20,10 +20,11 @@ test("timeout defaults to five minutes", () => {
 test("timeout accepts positive whole seconds", () => {
   assert.equal(parseTimeoutSeconds("45"), 45);
   assert.equal(parseTimeoutSeconds(1), 1);
+  assert.equal(parseTimeoutSeconds("604800"), 604_800);
 });
 
 test("timeout rejects invalid values", () => {
-  for (const value of ["", "1.5", "0", "-1", "nope"]) {
+  for (const value of ["", "1.5", "0", "-1", "604801", "nope"]) {
     assert.throws(() => parseTimeoutSeconds(value));
   }
 });
