@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title description">
   <title id="title">Blinkenlights</title>
-  <desc id="description">Caps Lock LED notifications for Pi on macOS.</desc>
+  <desc id="description">A ticket for Caps Lock LED notifications in Pi on macOS.</desc>
   <defs>
     <pattern id="paper" width="24" height="24" patternUnits="userSpaceOnUse">
       <circle cx="4" cy="7" r="0.6" fill="#252329" opacity="0.035"/>
@@ -13,13 +13,18 @@
     </radialGradient>
   </defs>
 
-  <rect width="1200" height="420" fill="#e4ddd4"/>
-  <rect x="12" y="12" width="1176" height="396" fill="#f4efe7" stroke="#252329" stroke-width="2"/>
-  <rect x="12" y="12" width="1176" height="396" fill="url(#paper)"/>
+  <rect width="1200" height="420" fill="#dfd7cd"/>
+  <rect x="22" y="18" width="1156" height="384" rx="8" fill="#f4efe7" stroke="#252329" stroke-width="2"/>
+  <rect x="22" y="18" width="1156" height="384" rx="8" fill="url(#paper)"/>
 
-  <g transform="translate(58 0)">
+  <path d="M814 36V384" stroke="#8d8890" stroke-width="1.5" stroke-dasharray="6 8"/>
+  <circle cx="814" cy="28" r="4" fill="#dfd7cd" stroke="#8d8890"/>
+  <circle cx="814" cy="392" r="4" fill="#dfd7cd" stroke="#8d8890"/>
+
+  <g transform="translate(62 0)">
     <text x="0" y="62" fill="#6f6a72" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" letter-spacing="2">PI EXTENSION · macOS · HID 08:02</text>
-    <path d="M0 82H675" stroke="#b7b0a8"/>
+    <text x="707" y="62" fill="#6f6a72" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" text-anchor="end">BLNK–0001</text>
+    <path d="M0 82H707" stroke="#b7b0a8"/>
 
     <text x="-2" y="190" fill="#252329" font-family="Georgia, Times New Roman, serif" font-size="86" font-style="italic" letter-spacing="-3">Blinkenlights</text>
     <text x="2" y="231" fill="#6f79a8" font-family="Georgia, Times New Roman, serif" font-size="24">Caps Lock LED notifications for Pi.</text>
@@ -37,13 +42,24 @@
     </g>
   </g>
 
-  <g transform="translate(842 80)">
-    <rect width="276" height="260" rx="5" fill="#ddd9e8" stroke="#252329" stroke-width="2"/>
-    <rect x="14" y="14" width="248" height="232" rx="3" fill="#ebe8f1" stroke="#aaa5b2"/>
-    <circle cx="224" cy="47" r="7" fill="url(#lamp)" stroke="#8d7928"/>
-    <text x="42" y="119" fill="#252329" font-family="Georgia, Times New Roman, serif" font-size="35">caps lock</text>
-    <path d="M42 144H234" stroke="#aaa5b2"/>
-    <text x="42" y="181" fill="#6f6a72" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" letter-spacing="1.4">LED OUTPUT ONLY</text>
-    <text x="42" y="211" fill="#cf7562" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" letter-spacing="1.4">CAPS STATE UNCHANGED</text>
+  <g transform="translate(846 0)">
+    <text x="0" y="62" fill="#6f6a72" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" letter-spacing="1.5">NOTIFICATION STUB</text>
+    <text x="290" y="62" fill="#cf7562" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" text-anchor="end">KEEP THIS END</text>
+
+    <g transform="translate(7 94)">
+      <rect width="276" height="232" rx="5" fill="#ddd9e8" stroke="#252329" stroke-width="2"/>
+      <rect x="14" y="14" width="248" height="204" rx="3" fill="#ebe8f1" stroke="#aaa5b2"/>
+      <circle cx="224" cy="43" r="7" fill="url(#lamp)" stroke="#8d7928"/>
+      <text x="42" y="108" fill="#252329" font-family="Georgia, Times New Roman, serif" font-size="35">caps lock</text>
+      <path d="M42 133H234" stroke="#aaa5b2"/>
+      <text x="42" y="170" fill="#6f6a72" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" letter-spacing="1.4">LED OUTPUT ONLY</text>
+      <text x="42" y="198" fill="#cf7562" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" letter-spacing="1.4">CAPS STATE UNCHANGED</text>
+    </g>
+
+    <text x="0" y="365" fill="#77727a" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing="1">ONE SIGNAL · LOCAL ONLY</text>
+    <text x="290" y="365" fill="#77727a" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" text-anchor="end">08 / 02</text>
   </g>
+
+  <circle cx="22" cy="210" r="18" fill="#dfd7cd"/>
+  <circle cx="1178" cy="210" r="18" fill="#dfd7cd"/>
 </svg>
