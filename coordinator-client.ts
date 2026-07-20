@@ -9,7 +9,8 @@ import type { DndValue } from "./dnd.ts";
 import type { Phase, ResolvedSettings } from "./patterns.ts";
 
 const RETRY_DELAY_MS = 50;
-const RETRY_COUNT = 40;
+const RETRY_COUNT = 60;
+const RESPAWN_INTERVAL_MS = 500;
 const HANDSHAKE_TIMEOUT_MS = 1_000;
 
 export class CoordinatorClient {
@@ -29,12 +30,25 @@ export class CoordinatorClient {
     helperPath: string,
     projectKey: string,
     notifyError: (message: string) => void,
+    socketPath?: string,
   ) {
     this.helperPath = helperPath;
     this.projectKey = projectKey;
     this.notifyError = notifyError;
     const uid = process.getuid?.() ?? 0;
-    this.socketPath = join(tmpdir(), `pi-blinkenlights-${uid}`, "coordinator.sock");
+    this.socketPath =
+      socketPath ?? join(tmpdir(), `pi-blinkenlights-${uid}`, "coordinator.sock");
+  }
+
+  private reconnect(): void {
+    if (this.closed || this.connecting) return;
+    this.connecting = this.connectWithRetry()
+      .catch((error) => {
+        this.notifyError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        this.connecting = undefined;
+      });
   }
 
   connect(): Promise<void> {
@@ -119,7 +133,7 @@ export class CoordinatorClient {
   }
 
   private async connectWithRetry(): Promise<void> {
-    let startedDaemon = false;
+    let lastSpawn = -Infinity;
     let lastError: unknown;
     for (let attempt = 0; attempt < RETRY_COUNT; attempt++) {
       if (this.closed) throw new Error("Coordinator client is closed");
@@ -134,9 +148,12 @@ export class CoordinatorClient {
       } catch (error) {
         lastError = error;
         if (this.closed) throw error;
-        if (!startedDaemon) {
+        // Spawn (or re-spawn) the daemon. An earlier spawn may have exited
+        // without listening because a concurrently-shutting-down daemon
+        // still held the lock; re-spawning once it exits lets us recover.
+        if (Date.now() - lastSpawn >= RESPAWN_INTERVAL_MS) {
           this.startDaemon();
-          startedDaemon = true;
+          lastSpawn = Date.now();
         }
         await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
       }
@@ -178,12 +195,22 @@ export class CoordinatorClient {
 
       socket.setEncoding("utf8");
       socket.on("error", (error) => {
-        if (ready) this.notifyError(error.message);
-        else failHandshake(error);
+        if (ready) {
+          // Transient drop on a live connection: stay quiet and let the
+          // close handler silently re-arm the connection.
+          if (this.closed) this.notifyError(error.message);
+        } else {
+          failHandshake(error);
+        }
       });
       socket.on("close", () => {
-        if (this.socket === socket) this.socket = undefined;
-        if (!ready) failHandshake(new Error("Coordinator closed during handshake"));
+        const wasCurrent = this.socket === socket;
+        if (wasCurrent) this.socket = undefined;
+        if (!ready) {
+          failHandshake(new Error("Coordinator closed during handshake"));
+        } else if (wasCurrent && !this.closed) {
+          void this.reconnect();
+        }
       });
       socket.on("data", (chunk) => {
         buffer += chunk;
