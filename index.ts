@@ -130,15 +130,24 @@ export default function blinkenlights(pi: ExtensionAPI): void {
   let removeFocusTracking: (() => void) | undefined;
   let sessionGeneration = 0;
   let notifyError: (message: string) => void = () => {};
+  let pendingAlert = false;
 
-  const acknowledge = (): void => coordinator?.acknowledge();
+  const acknowledge = (): void => {
+    coordinator?.acknowledge();
+    pendingAlert = false;
+  };
   const publishAlert = async (): Promise<void> => {
     const client = coordinator;
-    if (!client) return;
-    if (!settings.enabled) {
-      client.acknowledge();
+    if (!client) {
+      pendingAlert = true;
       return;
     }
+    if (!settings.enabled) {
+      client.acknowledge();
+      pendingAlert = false;
+      return;
+    }
+    pendingAlert = false;
     try {
       await client.alert(settings);
     } catch (error) {
@@ -214,6 +223,10 @@ export default function blinkenlights(pi: ExtensionAPI): void {
         return;
       }
       coordinator = client;
+      if (pendingAlert) {
+        pendingAlert = false;
+        void publishAlert();
+      }
     } catch (error) {
       client?.close();
       if (generation === sessionGeneration) {
