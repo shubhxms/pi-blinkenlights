@@ -37,6 +37,13 @@ export class CoordinatorClient {
   private alertRevision = 0;
   private closed = false;
   private capabilities = new Set<string>();
+  private lastSettings?: ResolvedSettings;
+  private activeAlertRequest?: {
+    priority: number;
+    timeoutMs: number;
+    projectKey: string;
+    phases: Phase[];
+  };
 
   constructor(
     helperPath: string,
@@ -81,6 +88,7 @@ export class CoordinatorClient {
     const phases = settings.patterns[settings.activePattern];
     if (!phases) throw new Error(`Unknown blink pattern: ${settings.activePattern}`);
     const revision = ++this.alertRevision;
+    this.lastSettings = settings;
     const message = {
       type: "alert",
       request: {
@@ -93,15 +101,18 @@ export class CoordinatorClient {
     await this.connect();
     if (this.closed || revision !== this.alertRevision) return;
     this.sendMetadataIfSupported(settings);
+    this.activeAlertRequest = message.request;
     this.sendIfConnected(message);
   }
 
   acknowledge(): void {
     this.alertRevision++;
+    this.activeAlertRequest = undefined;
     this.sendIfConnected({ type: "ack" });
   }
 
   async configure(settings: ResolvedSettings): Promise<void> {
+    this.lastSettings = settings;
     await this.connect();
     this.sendMetadataIfSupported(settings);
   }
@@ -133,6 +144,7 @@ export class CoordinatorClient {
   }
 
   async syncDnd(settings: ResolvedSettings): Promise<void> {
+    this.lastSettings = settings;
     await this.setDnd("global", settings.globalDndUntil);
     await this.setDnd("project", settings.projectDndUntil);
   }
@@ -142,6 +154,7 @@ export class CoordinatorClient {
     this.closed = true;
     this.previewRevision++;
     this.alertRevision++;
+    this.activeAlertRequest = undefined;
     this.pendingSocket?.destroy();
     this.pendingSocket = undefined;
     this.socket?.end();
@@ -161,7 +174,35 @@ export class CoordinatorClient {
 
   private sendMetadataIfSupported(settings: ResolvedSettings): void {
     if (this.capabilities.has("metadata")) {
-      this.sendIfConnected({ type: "metadata", focusHotkey: settings.focusHotkey });
+      this.sendIfConnected({
+        type: "metadata",
+        focusHotkey: settings.focusHotkey,
+        hotkeyHelperPath: this.hotkeyHelperPath,
+      });
+    }
+  }
+
+  private rearm(): void {
+    if (!this.lastSettings) return;
+    this.sendMetadataIfSupported(this.lastSettings);
+    this.sendDndState(this.lastSettings);
+    if (this.activeAlertRequest) {
+      this.sendIfConnected({ type: "alert", request: this.activeAlertRequest });
+    }
+  }
+
+  private sendDndState(settings: ResolvedSettings): void {
+    for (const scope of ["global", "project"] as const) {
+      const until =
+        scope === "global" ? settings.globalDndUntil : settings.projectDndUntil;
+      const projectKey = scope === "project" ? this.projectKey : undefined;
+      const off =
+        until === undefined || (typeof until === "number" && until <= Date.now());
+      this.sendIfConnected(
+        off
+          ? { type: "dndOff", scope, projectKey }
+          : { type: "dnd", scope, projectKey, until },
+      );
     }
   }
 
@@ -177,6 +218,7 @@ export class CoordinatorClient {
           throw new Error("Coordinator client is closed");
         }
         this.socket = socket;
+        this.rearm();
         return;
       } catch (error) {
         lastError = error;
@@ -274,6 +316,7 @@ export class CoordinatorClient {
           type: "hello",
           clientId: this.clientId,
           focus: this.focusMetadata,
+          hotkeyHelperPath: this.hotkeyHelperPath,
         })}\n`);
       });
     });

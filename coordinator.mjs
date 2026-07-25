@@ -14,7 +14,8 @@ import { spawn } from "node:child_process";
 import { focusTarget } from "./focus.mjs";
 import { Scheduler } from "./scheduler.mjs";
 
-const [socketPath, helperPath, hotkeyHelperPath] = process.argv.slice(2);
+const [socketPath, helperPath, argvHotkeyHelperPath] = process.argv.slice(2);
+let hotkeyHelperPath = argvHotkeyHelperPath;
 if (!socketPath || !helperPath) process.exit(64);
 const lockPath = `${socketPath}.lock`;
 
@@ -334,6 +335,9 @@ function handleMessage(socket, message) {
 		}
 		socket.clientId = message.clientId;
 		clientConnections.set(message.clientId, socket);
+		if (typeof message.hotkeyHelperPath === "string" && message.hotkeyHelperPath) {
+			hotkeyHelperPath = message.hotkeyHelperPath;
+		}
 		updateClientFocus(message.clientId, { focus: validateFocus(message.focus) });
 		socket.write(`${JSON.stringify({ type: "ready", capabilities: ["metadata", "focus"] })}\n`);
 		return;
@@ -353,6 +357,9 @@ function handleMessage(socket, message) {
 	} else if (message.type === "dndOff") {
 		reconcile(scheduler.clearDnd(message.scope, message.projectKey));
 	} else if (message.type === "metadata") {
+		if (typeof message.hotkeyHelperPath === "string" && message.hotkeyHelperPath) {
+			hotkeyHelperPath = message.hotkeyHelperPath;
+		}
 		updateClientFocus(socket.clientId, {
 			focus: validateFocus(message.focus),
 			focusHotkey: validateFocusHotkey(message.focusHotkey),

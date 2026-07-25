@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { CoordinatorClient } from "../coordinator-client.ts";
@@ -48,7 +49,8 @@ async function waitFor<T>(check: () => T, timeoutMs = 3_000): Promise<T> {
 
 function logLines(logPath: string): number {
 	try {
-		return readFileSync(logPath, "utf8").trim().split("\n").filter(Boolean).length;
+		return readFileSync(logPath, "utf8").trim().split("\n").filter(Boolean)
+			.length;
 	} catch {
 		return 0;
 	}
@@ -79,7 +81,12 @@ test("client reconnects after the daemon dies mid-session", async (t) => {
 	const helperPath = makeHelper(logPath);
 	t.after(() => rmSync(directory, { recursive: true, force: true }));
 
-	const client = new CoordinatorClient(helperPath, "/proj", () => {}, socketPath);
+	const client = new CoordinatorClient(
+		helperPath,
+		"/proj",
+		() => {},
+		socketPath,
+	);
 	await client.connect();
 	await client.alert(settings);
 	await waitFor(() => logLines(logPath) >= 1);
@@ -91,7 +98,7 @@ test("client reconnects after the daemon dies mid-session", async (t) => {
 	// The client notices the dead socket and proactively respawns + reconnects.
 	await waitFor(() => {
 		const next = holderPid(lockPath);
-	return typeof next === "number" && next !== deadPid && isAlive(next);
+		return typeof next === "number" && next !== deadPid && isAlive(next);
 	});
 
 	await client.alert(settings);
@@ -118,7 +125,12 @@ test("client recovers when its first daemon spawn loses the lock race", async (t
 	t.after(() => blocker.kill("SIGKILL"));
 	writeFileSync(lockPath, String(blocker.pid));
 
-	const client = new CoordinatorClient(helperPath, "/proj", () => {}, socketPath);
+	const client = new CoordinatorClient(
+		helperPath,
+		"/proj",
+		() => {},
+		socketPath,
+	);
 	const connecting = client.connect();
 
 	// Let the client fail a few connect attempts, each spawn losing the race.
@@ -132,5 +144,86 @@ test("client recovers when its first daemon spawn loses the lock race", async (t
 	await client.alert(settings);
 	await waitFor(() => logLines(logPath) >= 1);
 
+	client.close();
+});
+
+test("client re-arms its active alert after the daemon dies and reconnects", async (t) => {
+	const directory = mkdtempSync(join(tmpdir(), "blink-rel-rearm-"));
+	const socketPath = join(directory, "coordinator.sock");
+	const lockPath = `${socketPath}.lock`;
+	const logPath = join(directory, "workers.log");
+	const helperPath = makeHelper(logPath);
+	t.after(() => rmSync(directory, { recursive: true, force: true }));
+
+	const client = new CoordinatorClient(
+		helperPath,
+		"/proj",
+		() => {},
+		socketPath,
+	);
+	await client.connect();
+	await client.alert(settings);
+	await waitFor(() => logLines(logPath) >= 1);
+
+	// Kill the daemon mid-alert; the client self-heals to a fresh daemon that
+	// has no memory of our alert.
+	const deadPid = Number(readFileSync(lockPath, "utf8"));
+	process.kill(deadPid, "SIGKILL");
+	await waitFor(() => {
+		const next = holderPid(lockPath);
+		return typeof next === "number" && next !== deadPid && isAlive(next);
+	});
+
+	// The client must re-send its still-active alert without being prompted,
+	// otherwise the LED would stay dark until the next agent_settled.
+	await waitFor(() => logLines(logPath) >= 2);
+	client.close();
+});
+
+test("daemon arms the focus hotkey from a client even when spawned without the helper path", async (t) => {
+	const directory = mkdtempSync(join(tmpdir(), "blink-rel-hotkey-"));
+	const socketPath = join(directory, "coordinator.sock");
+	const helperPath = makeHelper(join(directory, "workers.log"));
+	const hotkeyLog = join(directory, "hotkey.log");
+	const hotkeyHelper = join(directory, "hotkey-helper.mjs");
+	writeFileSync(
+		hotkeyHelper,
+		`#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(hotkeyLog)}, "spawn\\n");
+process.stdin.resume();
+process.stdin.on("end", () => process.exit(0));
+`,
+	);
+	chmodSync(hotkeyHelper, 0o755);
+	t.after(() => rmSync(directory, { recursive: true, force: true }));
+
+	// Daemon started WITHOUT the hotkey-helper argv (as an older client would
+	// spawn it). The current client must supply the path at runtime instead.
+	const daemonPath = fileURLToPath(new URL("../coordinator.mjs", import.meta.url));
+	const daemon = spawn(process.execPath, [daemonPath, socketPath, helperPath], {
+		stdio: "ignore",
+	});
+	daemon.unref();
+	t.after(() => daemon.kill("SIGTERM"));
+
+	const hotkeyLines = () => {
+		try {
+			return readFileSync(hotkeyLog, "utf8").trim().length;
+		} catch {
+			return 0;
+		}
+	};
+
+	const client = new CoordinatorClient(
+		helperPath,
+		"/proj",
+		() => {},
+		socketPath,
+		hotkeyHelper,
+	);
+	await client.connect();
+	await client.configure(settings); // metadata: enabled focusHotkey + helper path
+	await waitFor(() => hotkeyLines() > 0);
 	client.close();
 });
