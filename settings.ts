@@ -22,6 +22,7 @@ import type { DndValue } from "./dnd.ts";
 import {
 	BUILTIN_PATTERNS,
 	formatPattern,
+	parseFocusHotkey,
 	parsePattern,
 	parsePriority,
 	parseTimeoutSeconds,
@@ -181,6 +182,9 @@ function readSettings(path: string): StoredSettings {
 			}
 			settings.patterns[name] = formatPattern(parsePattern(source));
 		}
+	}
+	if (input.focusHotkey !== undefined) {
+		settings.focusHotkey = parseFocusHotkey(input.focusHotkey);
 	}
 	return settings;
 }
@@ -360,6 +364,60 @@ export function createSettingsStore(): BlinkenlightsSettingsStore {
 		}, onChange);
 	};
 
+	const saveFocusHotkey = async (
+		ctx: ExtensionCommandContext,
+		next: Partial<ResolvedSettings["focusHotkey"]>,
+		onChange: (settings: ResolvedSettings) => void,
+	): Promise<void> => {
+		const scope = await chooseScope(ctx);
+		if (!scope) return;
+		update(ctx, scope, (settings) => {
+			settings.focusHotkey = {
+				...resolved.focusHotkey,
+				...next,
+				type: "doubleModifier",
+			};
+		}, onChange);
+	};
+
+	const changeFocusHotkey = async (
+		ctx: ExtensionCommandContext,
+		onChange: (settings: ResolvedSettings) => void,
+	): Promise<void> => {
+		while (true) {
+			const action = await ctx.ui.select("Focus hotkey", [
+				`Enabled · ${resolved.focusHotkey.enabled ? "on" : "off"}`,
+				`Modifier · ${resolved.focusHotkey.modifier}`,
+				`Interval · ${resolved.focusHotkey.intervalMs}ms`,
+				"Back",
+			]);
+			if (!action || action === "Back") return;
+			if (action.startsWith("Enabled ·")) {
+				const state = await ctx.ui.select("Focus hotkey", ["Enabled", "Disabled"]);
+				if (!state) continue;
+				await saveFocusHotkey(ctx, { enabled: state === "Enabled" }, onChange);
+			} else if (action.startsWith("Modifier ·")) {
+				const modifier = await ctx.ui.select("Double-press modifier", [
+					"command",
+					"control",
+					"option",
+					"shift",
+				]);
+				if (!modifier) continue;
+				await saveFocusHotkey(ctx, { modifier: modifier as typeof resolved.focusHotkey.modifier }, onChange);
+			} else if (action.startsWith("Interval ·")) {
+				const interval = await ctx.ui.input("Double-press interval in ms", String(resolved.focusHotkey.intervalMs));
+				if (interval === undefined) continue;
+				try {
+					const intervalMs = parseFocusHotkey({ ...resolved.focusHotkey, intervalMs: Number(interval) }).intervalMs;
+					await saveFocusHotkey(ctx, { intervalMs }, onChange);
+				} catch (error) {
+					ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+				}
+			}
+		}
+	};
+
 	const savePattern = async (
 		ctx: ExtensionCommandContext,
 		onChange: (settings: ResolvedSettings) => void,
@@ -444,6 +502,7 @@ export function createSettingsStore(): BlinkenlightsSettingsStore {
 					`Pattern · ${resolved.activePattern}`,
 					`Timeout · ${resolved.timeoutSeconds}s`,
 					`Priority · ${resolved.priority} (lower wins)`,
+					`Focus hotkey · ${resolved.focusHotkey.enabled ? `double ${resolved.focusHotkey.modifier}` : "off"}`,
 					"Save custom pattern",
 					"Delete custom pattern",
 				];
@@ -460,6 +519,8 @@ export function createSettingsStore(): BlinkenlightsSettingsStore {
 					await changeTimeout(ctx, onChange);
 				else if (action.startsWith("Priority ·"))
 					await changePriority(ctx, onChange);
+				else if (action.startsWith("Focus hotkey ·"))
+					await changeFocusHotkey(ctx, onChange);
 				else if (action === "Save custom pattern")
 					await savePattern(ctx, onChange);
 				else if (action === "Delete custom pattern")

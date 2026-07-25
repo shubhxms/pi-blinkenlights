@@ -59,6 +59,24 @@ The question-tool integration is name-based. Pi does not currently expose a gene
 
 The current session acknowledges its alert when you focus the terminal, press a key, start another turn, answer the question, or shut down the session. The configured timeout is the final backstop.
 
+### Focus hotkey
+
+Blinkenlights can also jump back to the alerting Pi session. By default, double-press **Command** within 350 ms to focus the session whose alert is currently winning the coordinator schedule. You can also trigger this manually:
+
+```text
+/blinkenlights:focus
+```
+
+The hotkey is configurable from `/blinkenlights` and can be disabled.
+
+On macOS, the hotkey helper uses a listen-only event tap. If it does not fire, allow Accessibility or Input Monitoring permission for the process macOS prompts for, then restart Pi or re-save the hotkey setting. Blinkenlights does not consume or synthesize key events.
+
+Terminal targeting is best effort:
+
+- tmux sessions are selected by `TMUX_PANE` first, then pane TTY, and Blinkenlights switches to the matching tmux window and pane.
+- iTerm2 and Terminal.app are targeted by their AppleScript TTY metadata when available; macOS may prompt for Automation permission.
+- Ghostty is activated as an app. Exact Ghostty window/tab selection is not currently available through a stable scripting API, so tmux provides the precise window/pane focus for Ghostty workflows.
+
 ### Multiple Pi sessions
 
 Every Pi process connects to one per-user coordinator over a Unix socket. Only that coordinator controls the physical LED.

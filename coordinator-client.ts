@@ -6,7 +6,16 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { DndValue } from "./dnd.ts";
-import type { Phase, ResolvedSettings } from "./patterns.ts";
+import type { FocusHotkeySettings, Phase, ResolvedSettings } from "./patterns.ts";
+
+export interface FocusMetadata {
+  pid: number;
+  cwd: string;
+  tty?: string;
+  tmux?: string;
+  tmuxPane?: string;
+  termProgram?: string;
+}
 
 const RETRY_DELAY_MS = 50;
 const RETRY_COUNT = 60;
@@ -16,7 +25,9 @@ const HANDSHAKE_TIMEOUT_MS = 1_000;
 export class CoordinatorClient {
   private readonly clientId = randomUUID();
   private readonly helperPath: string;
+  private readonly hotkeyHelperPath: string | undefined;
   private readonly projectKey: string;
+  private readonly focusMetadata: FocusMetadata;
   private readonly socketPath: string;
   private readonly notifyError: (message: string) => void;
   private socket: Socket | undefined;
@@ -25,15 +36,20 @@ export class CoordinatorClient {
   private previewRevision = 0;
   private alertRevision = 0;
   private closed = false;
+  private capabilities = new Set<string>();
 
   constructor(
     helperPath: string,
     projectKey: string,
     notifyError: (message: string) => void,
     socketPath?: string,
+    hotkeyHelperPath?: string,
+    focusMetadata?: FocusMetadata,
   ) {
     this.helperPath = helperPath;
+    this.hotkeyHelperPath = hotkeyHelperPath;
     this.projectKey = projectKey;
+    this.focusMetadata = focusMetadata ?? { pid: process.pid, cwd: projectKey };
     this.notifyError = notifyError;
     const uid = process.getuid?.() ?? 0;
     this.socketPath =
@@ -76,12 +92,23 @@ export class CoordinatorClient {
     };
     await this.connect();
     if (this.closed || revision !== this.alertRevision) return;
+    this.sendMetadataIfSupported(settings);
     this.sendIfConnected(message);
   }
 
   acknowledge(): void {
     this.alertRevision++;
     this.sendIfConnected({ type: "ack" });
+  }
+
+  async configure(settings: ResolvedSettings): Promise<void> {
+    await this.connect();
+    this.sendMetadataIfSupported(settings);
+  }
+
+  async focus(settings: ResolvedSettings): Promise<void> {
+    await this.configure(settings);
+    if (this.capabilities.has("focus")) this.sendIfConnected({ type: "focus" });
   }
 
   async preview(phases: Phase[]): Promise<void> {
@@ -129,6 +156,12 @@ export class CoordinatorClient {
   private sendIfConnected(message: unknown): void {
     if (this.socket && !this.socket.destroyed) {
       this.socket.write(`${JSON.stringify(message)}\n`);
+    }
+  }
+
+  private sendMetadataIfSupported(settings: ResolvedSettings): void {
+    if (this.capabilities.has("metadata")) {
+      this.sendIfConnected({ type: "metadata", focusHotkey: settings.focusHotkey });
     }
   }
 
@@ -221,8 +254,9 @@ export class CoordinatorClient {
           buffer = buffer.slice(newline + 1);
           if (!line) continue;
           try {
-            const message = JSON.parse(line) as { type?: string; message?: string };
+            const message = JSON.parse(line) as { type?: string; message?: string; capabilities?: unknown };
             if (message.type === "ready" && !ready) {
+              this.capabilities = new Set(Array.isArray(message.capabilities) ? message.capabilities : []);
               finishHandshake();
             } else if (message.type === "error" && message.message) {
               if (ready) this.notifyError(message.message);
@@ -236,14 +270,20 @@ export class CoordinatorClient {
         }
       });
       socket.once("connect", () => {
-        socket.write(`${JSON.stringify({ type: "hello", clientId: this.clientId })}\n`);
+        socket.write(`${JSON.stringify({
+          type: "hello",
+          clientId: this.clientId,
+          focus: this.focusMetadata,
+        })}\n`);
       });
     });
   }
 
   private startDaemon(): void {
     const daemonPath = fileURLToPath(new URL("./coordinator.mjs", import.meta.url));
-    const daemon = spawn(process.execPath, [daemonPath, this.socketPath, this.helperPath], {
+    const args = [daemonPath, this.socketPath, this.helperPath];
+    if (this.hotkeyHelperPath) args.push(this.hotkeyHelperPath);
+    const daemon = spawn(process.execPath, args, {
       detached: true,
       stdio: "ignore",
     });

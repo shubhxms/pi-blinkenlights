@@ -3,6 +3,12 @@ import type { DndValue } from "./dnd.ts";
 export const DEFAULT_TIMEOUT_SECONDS = 300;
 export const MAX_TIMEOUT_SECONDS = 604_800;
 export const DEFAULT_PRIORITY = 10;
+export const DEFAULT_FOCUS_HOTKEY: FocusHotkeySettings = {
+	enabled: true,
+	type: "doubleModifier",
+	modifier: "command",
+	intervalMs: 350,
+};
 
 const MIN_PHASE_MS = 20;
 const MAX_PHASE_MS = 60_000;
@@ -14,6 +20,15 @@ export interface Phase {
 	durationMs: number;
 }
 
+export type FocusModifier = "command" | "control" | "option" | "shift";
+
+export interface FocusHotkeySettings {
+	enabled: boolean;
+	type: "doubleModifier";
+	modifier: FocusModifier;
+	intervalMs: number;
+}
+
 export interface StoredSettings {
 	activePattern?: string;
 	timeoutSeconds?: number;
@@ -21,6 +36,7 @@ export interface StoredSettings {
 	enabled?: boolean;
 	dndUntil?: DndValue;
 	patterns?: Record<string, string>;
+	focusHotkey?: Partial<FocusHotkeySettings>;
 }
 
 export interface ResolvedSettings {
@@ -31,6 +47,7 @@ export interface ResolvedSettings {
 	globalDndUntil: DndValue;
 	projectDndUntil: DndValue;
 	patterns: Record<string, Phase[]>;
+	focusHotkey: FocusHotkeySettings;
 }
 
 export const BUILTIN_PATTERNS: Record<string, string> = {
@@ -64,6 +81,35 @@ export function parsePriority(value: unknown): number {
 		throw new Error("priority must be between 1 and 1000000");
 	}
 	return priority;
+}
+
+export function parseFocusHotkey(value: unknown = {}): FocusHotkeySettings {
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
+		throw new Error("focusHotkey must be an object");
+	}
+	const input = value as Partial<Record<keyof FocusHotkeySettings, unknown>>;
+	const enabled = input.enabled ?? DEFAULT_FOCUS_HOTKEY.enabled;
+	if (typeof enabled !== "boolean") throw new Error("focusHotkey.enabled must be boolean");
+
+	const type = input.type ?? DEFAULT_FOCUS_HOTKEY.type;
+	if (type !== "doubleModifier") throw new Error("focusHotkey.type must be doubleModifier");
+
+	const modifier = input.modifier ?? DEFAULT_FOCUS_HOTKEY.modifier;
+	if (!["command", "control", "option", "shift"].includes(String(modifier))) {
+		throw new Error("focusHotkey.modifier must be command, control, option, or shift");
+	}
+
+	const intervalMs = input.intervalMs ?? DEFAULT_FOCUS_HOTKEY.intervalMs;
+	if (!Number.isInteger(intervalMs) || Number(intervalMs) < 100 || Number(intervalMs) > 2_000) {
+		throw new Error("focusHotkey.intervalMs must be between 100 and 2000");
+	}
+
+	return {
+		enabled,
+		type,
+		modifier: modifier as FocusModifier,
+		intervalMs: Number(intervalMs),
+	};
 }
 
 export function parsePattern(source: string): Phase[] {
@@ -154,5 +200,9 @@ export function resolveSettings(
 		globalDndUntil: globalSettings.dndUntil,
 		projectDndUntil: projectSettings.dndUntil,
 		patterns,
+		focusHotkey: parseFocusHotkey({
+			...(globalSettings.focusHotkey ?? {}),
+			...(projectSettings.focusHotkey ?? {}),
+		}),
 	};
 }

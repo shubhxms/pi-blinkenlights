@@ -28,8 +28,10 @@
     "assets/blinkenlights.png",
     "assets/blinkenlights.svg",
     "blinkenlights.c",
+    "blinkenlights-hotkey.c",
     "coordinator-client.ts",
     "coordinator.mjs",
+    "focus.mjs",
     "dnd.ts",
     "index.ts",
     "patterns.ts",
@@ -37,7 +39,7 @@
     "settings.ts"
   ],
   "scripts": {
-    "test": "xcrun clang -std=c11 -Wall -Wextra -Werror -fsyntax-only blinkenlights.c && node --check coordinator.mjs && node --check scheduler.mjs && npm run typecheck --silent && node --test test/*.test.*",
+    "test": "xcrun clang -std=c11 -Wall -Wextra -Werror -fsyntax-only blinkenlights.c && xcrun clang -std=c11 -Wall -Wextra -Werror -fsyntax-only blinkenlights-hotkey.c && node --check coordinator.mjs && node --check focus.mjs && node --check scheduler.mjs && npm run typecheck --silent && node --test test/*.test.*",
     "typecheck": "tsc --noEmit --module nodenext --moduleResolution nodenext --target es2022 --strict --skipLibCheck --allowImportingTsExtensions index.ts coordinator-client.ts patterns.ts settings.ts test/*.test.ts",
     "prepublishOnly": "npm test"
   },

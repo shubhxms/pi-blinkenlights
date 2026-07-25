@@ -11,9 +11,10 @@ import { createServer } from "node:net";
 import { dirname } from "node:path";
 import { spawn } from "node:child_process";
 
+import { focusTarget } from "./focus.mjs";
 import { Scheduler } from "./scheduler.mjs";
 
-const [socketPath, helperPath] = process.argv.slice(2);
+const [socketPath, helperPath, hotkeyHelperPath] = process.argv.slice(2);
 if (!socketPath || !helperPath) process.exit(64);
 const lockPath = `${socketPath}.lock`;
 
@@ -52,12 +53,15 @@ rmSync(socketPath, { force: true });
 const scheduler = new Scheduler();
 const connections = new Set();
 const clientConnections = new Map();
+const clientFocus = new Map();
 let desiredSelection;
 let worker;
 let applying = false;
 let shuttingDown = false;
 let idleTimer;
 let hadClient = false;
+let hotkeyWorker;
+let hotkeyKey;
 
 function selectionKey(selection) {
 	return selection
@@ -70,6 +74,139 @@ function broadcast(message) {
 	for (const socket of connections) {
 		if (!socket.destroyed) socket.write(encoded);
 	}
+}
+
+function validateFocus(value) {
+	if (!value || typeof value !== "object") return undefined;
+	return {
+		pid: Number.isInteger(value.pid) ? value.pid : undefined,
+		cwd: typeof value.cwd === "string" ? value.cwd : undefined,
+		tty: typeof value.tty === "string" ? value.tty : undefined,
+		tmux: typeof value.tmux === "string" ? value.tmux : undefined,
+		tmuxPane: typeof value.tmuxPane === "string" ? value.tmuxPane : undefined,
+		termProgram: typeof value.termProgram === "string" ? value.termProgram : undefined,
+	};
+}
+
+function validateFocusHotkey(value) {
+	if (!value || typeof value !== "object") return undefined;
+	const enabled = value.enabled === true;
+	const type = value.type === "doubleModifier" ? value.type : "doubleModifier";
+	const modifier = ["command", "control", "option", "shift"].includes(value.modifier)
+		? value.modifier
+		: "command";
+	const intervalMs = Number.isInteger(value.intervalMs) && value.intervalMs >= 100 && value.intervalMs <= 2_000
+		? value.intervalMs
+		: 350;
+	return { enabled, type, modifier, intervalMs };
+}
+
+function hotkeyConfigKey(config) {
+	return config?.enabled ? `${config.type}:${config.modifier}:${config.intervalMs}` : undefined;
+}
+
+function updateClientFocus(clientId, next) {
+	const existing = clientFocus.get(clientId) ?? {};
+	clientFocus.set(clientId, {
+		...existing,
+		...next,
+		focus: next.focus ? { ...(existing.focus ?? {}), ...next.focus } : existing.focus,
+	});
+	reconcileHotkey();
+}
+
+function selectedHotkeyConfig() {
+	for (const entry of clientFocus.values()) {
+		if (entry.focusHotkey?.enabled) return entry.focusHotkey;
+	}
+	return undefined;
+}
+
+function stopHotkeyWorker() {
+	const active = hotkeyWorker;
+	hotkeyWorker = undefined;
+	hotkeyKey = undefined;
+	if (!active) return;
+	active.kill("SIGTERM");
+}
+
+function describeFocusDiagnostic(result) {
+	const diagnostic = result.diagnostic;
+	if (!diagnostic) return result.reason;
+	const pane = diagnostic.matchedPane
+		? `${diagnostic.matchedPane.windowId ?? "?"}/${diagnostic.matchedPane.paneId ?? "?"}/${diagnostic.matchedPane.paneTty ?? "?"}`
+		: "none";
+	const clients = (diagnostic.matchedClients ?? [])
+		.map((client) => `${client.clientTty ?? "?"}:${client.sessionName ?? client.sessionId ?? "?"}`)
+		.join(",") || "none";
+	return [
+		`tty=${diagnostic.targetTty ?? "none"}`,
+		`tmux=${diagnostic.hasTmux ? "yes" : "no"}`,
+		`tmuxPane=${diagnostic.tmuxPane ?? "none"}`,
+		`term=${diagnostic.termProgram ?? "unknown"}`,
+		`appTty=${diagnostic.appTargetTty ?? "none"}`,
+		`pane=${pane}`,
+		`clients=${clients}`,
+		diagnostic.tmuxReason ? `tmuxReason=${diagnostic.tmuxReason}` : undefined,
+	].filter(Boolean).join(" ");
+}
+
+function fireFocusHotkey() {
+	if (desiredSelection?.kind !== "alert") return;
+	const target = clientFocus.get(desiredSelection.clientId)?.focus;
+	const result = focusTarget(target);
+	if (!result.tmuxFocused && result.diagnostic?.hasTmux) {
+		broadcast({
+			type: "error",
+			message: `Blinkenlights tmux focus did not complete: ${describeFocusDiagnostic(result)}`,
+		});
+	} else if (!result.appFocused) {
+		broadcast({
+			type: "error",
+			message: `Blinkenlights focused tmux but could not activate terminal app: ${describeFocusDiagnostic(result)}`,
+		});
+	}
+}
+
+function reconcileHotkey() {
+	const config = selectedHotkeyConfig();
+	const key = hotkeyConfigKey(config);
+	if (key === hotkeyKey) return;
+	stopHotkeyWorker();
+	if (!key || !hotkeyHelperPath) return;
+	const child = spawn(hotkeyHelperPath, [config.modifier, String(config.intervalMs)], {
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	hotkeyWorker = child;
+	hotkeyKey = key;
+	child.stdout.setEncoding("utf8");
+	let buffer = "";
+	child.stdout.on("data", (chunk) => {
+		buffer += chunk;
+		while (true) {
+			const newline = buffer.indexOf("\n");
+			if (newline < 0) break;
+			const line = buffer.slice(0, newline).trim();
+			buffer = buffer.slice(newline + 1);
+			if (line === "fired") fireFocusHotkey();
+		}
+	});
+	child.once("error", (error) => {
+		broadcast({ type: "error", message: `Blinkenlights hotkey failed: ${error.message}` });
+	});
+	child.once("close", (code) => {
+		if (hotkeyWorker !== child || shuttingDown) return;
+		hotkeyWorker = undefined;
+		hotkeyKey = undefined;
+		if (code) {
+			broadcast({
+				type: "error",
+				message: code === 2
+					? "Blinkenlights hotkey needs Accessibility/Input Monitoring permission"
+					: `Blinkenlights hotkey helper exited with code ${code}`,
+			});
+		}
+	});
 }
 
 async function forceLedOff() {
@@ -197,7 +334,8 @@ function handleMessage(socket, message) {
 		}
 		socket.clientId = message.clientId;
 		clientConnections.set(message.clientId, socket);
-		socket.write(`${JSON.stringify({ type: "ready" })}\n`);
+		updateClientFocus(message.clientId, { focus: validateFocus(message.focus) });
+		socket.write(`${JSON.stringify({ type: "ready", capabilities: ["metadata", "focus"] })}\n`);
 		return;
 	}
 
@@ -214,6 +352,13 @@ function handleMessage(socket, message) {
 		reconcile(scheduler.setDnd(message.scope, message.projectKey, message.until));
 	} else if (message.type === "dndOff") {
 		reconcile(scheduler.clearDnd(message.scope, message.projectKey));
+	} else if (message.type === "metadata") {
+		updateClientFocus(socket.clientId, {
+			focus: validateFocus(message.focus),
+			focusHotkey: validateFocusHotkey(message.focusHotkey),
+		});
+	} else if (message.type === "focus") {
+		fireFocusHotkey();
 	} else {
 		throw new Error(`unknown message type: ${message.type}`);
 	}
@@ -249,6 +394,8 @@ const server = createServer((socket) => {
 		connections.delete(socket);
 		if (socket.clientId) {
 			clientConnections.delete(socket.clientId);
+			clientFocus.delete(socket.clientId);
+			reconcileHotkey();
 			reconcile(scheduler.removeClient(socket.clientId));
 		}
 		if (hadClient && connections.size === 0) {
@@ -263,6 +410,7 @@ async function shutdown() {
 	if (shuttingDown) return;
 	shuttingDown = true;
 	desiredSelection = undefined;
+	stopHotkeyWorker();
 	await stopWorker();
 	server.close();
 	rmSync(socketPath, { force: true });
