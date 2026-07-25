@@ -59,6 +59,8 @@ The question-tool integration is name-based. Pi does not currently expose a gene
 
 The current session acknowledges its alert when you focus the terminal, press a key, start another turn, answer the question, or shut down the session. The configured timeout is the final backstop.
 
+When the terminal window is already focused, Blinkenlights suppresses the blink entirely rather than announcing something you can already see. This is configurable as **Suppress when focused** in `/blinkenlights` (on by default); turn it off if you want the LED to blink regardless.
+
 ### Focus hotkey
 
 Blinkenlights can also jump back to the alerting Pi session. By default, double-press **Command** within 350 ms to focus the session whose alert is currently winning the coordinator schedule. You can also trigger this manually:
@@ -129,6 +131,7 @@ Project values override global values. Pattern libraries merge, with project pat
 ```json
 {
   "enabled": true,
+  "suppressWhenFocused": true,
   "activePattern": "Double pulse",
   "timeoutSeconds": 300,
   "priority": 10,

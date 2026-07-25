@@ -3,6 +3,7 @@ import type { DndValue } from "./dnd.ts";
 export const DEFAULT_TIMEOUT_SECONDS = 300;
 export const MAX_TIMEOUT_SECONDS = 604_800;
 export const DEFAULT_PRIORITY = 10;
+export const DEFAULT_SUPPRESS_WHEN_FOCUSED = true;
 export const DEFAULT_FOCUS_HOTKEY: FocusHotkeySettings = {
 	enabled: true,
 	type: "doubleModifier",
@@ -34,6 +35,7 @@ export interface StoredSettings {
 	timeoutSeconds?: number;
 	priority?: number;
 	enabled?: boolean;
+	suppressWhenFocused?: boolean;
 	dndUntil?: DndValue;
 	patterns?: Record<string, string>;
 	focusHotkey?: Partial<FocusHotkeySettings>;
@@ -44,6 +46,7 @@ export interface ResolvedSettings {
 	timeoutSeconds: number;
 	priority: number;
 	enabled: boolean;
+	suppressWhenFocused: boolean;
 	globalDndUntil: DndValue;
 	projectDndUntil: DndValue;
 	patterns: Record<string, Phase[]>;
@@ -197,6 +200,10 @@ export function resolveSettings(
 		),
 		priority: parsePriority(projectSettings.priority ?? globalSettings.priority),
 		enabled: projectSettings.enabled ?? globalSettings.enabled ?? true,
+		suppressWhenFocused:
+			projectSettings.suppressWhenFocused ??
+			globalSettings.suppressWhenFocused ??
+			DEFAULT_SUPPRESS_WHEN_FOCUSED,
 		globalDndUntil: globalSettings.dndUntil,
 		projectDndUntil: projectSettings.dndUntil,
 		patterns,

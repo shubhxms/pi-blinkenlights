@@ -158,6 +158,11 @@ function readSettings(path: string): StoredSettings {
 		if (typeof input.enabled !== "boolean") throw new Error(`${path}: enabled must be boolean`);
 		settings.enabled = input.enabled;
 	}
+	if (input.suppressWhenFocused !== undefined) {
+		if (typeof input.suppressWhenFocused !== "boolean")
+			throw new Error(`${path}: suppressWhenFocused must be boolean`);
+		settings.suppressWhenFocused = input.suppressWhenFocused;
+	}
 	if (input.dndUntil !== undefined) {
 		if (
 			input.dndUntil !== null &&
@@ -364,6 +369,22 @@ export function createSettingsStore(): BlinkenlightsSettingsStore {
 		}, onChange);
 	};
 
+	const changeSuppressWhenFocused = async (
+		ctx: ExtensionCommandContext,
+		onChange: (settings: ResolvedSettings) => void,
+	): Promise<void> => {
+		const choice = await ctx.ui.select("Suppress blinking when the terminal is focused", [
+			"On",
+			"Off",
+		]);
+		if (!choice) return;
+		const scope = await chooseScope(ctx);
+		if (!scope) return;
+		update(ctx, scope, (settings) => {
+			settings.suppressWhenFocused = choice === "On";
+		}, onChange);
+	};
+
 	const saveFocusHotkey = async (
 		ctx: ExtensionCommandContext,
 		next: Partial<ResolvedSettings["focusHotkey"]>,
@@ -498,7 +519,8 @@ export function createSettingsStore(): BlinkenlightsSettingsStore {
 			onChange(load(ctx));
 			while (true) {
 				const actions = [
-					`Enabled · ${resolved.enabled ? "on" : "off"}`,
+				`Enabled · ${resolved.enabled ? "on" : "off"}`,
+				`Suppress when focused · ${resolved.suppressWhenFocused ? "on" : "off"}`,
 					`Pattern · ${resolved.activePattern}`,
 					`Timeout · ${resolved.timeoutSeconds}s`,
 					`Priority · ${resolved.priority} (lower wins)`,
@@ -513,7 +535,9 @@ export function createSettingsStore(): BlinkenlightsSettingsStore {
 
 				const action = await ctx.ui.select("Blinkenlights settings", actions);
 				if (!action || action === "Done") return;
-				if (action.startsWith("Enabled ·")) await changeEnabled(ctx, onChange);
+			if (action.startsWith("Enabled ·")) await changeEnabled(ctx, onChange);
+			else if (action.startsWith("Suppress when focused ·"))
+				await changeSuppressWhenFocused(ctx, onChange);
 				else if (action.startsWith("Pattern ·")) await choosePattern(ctx, onChange, preview);
 				else if (action.startsWith("Timeout ·"))
 					await changeTimeout(ctx, onChange);

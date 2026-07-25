@@ -155,13 +155,14 @@ function focusMetadata(ctx: ExtensionContext): FocusMetadata {
   };
 }
 
-function installFocusTracking(ctx: ExtensionContext, acknowledge: () => void): () => void {
+function installFocusTracking(ctx: ExtensionContext, onFocusChange: (focused: boolean) => void): () => void {
   let removeInputListener: (() => void) | undefined;
   ctx.ui.setWidget(WIDGET_ID, (tui) => {
     removeInputListener = tui.addInputListener((data: string) => {
-      const focused = data.includes(FOCUS_IN);
+      if (data.includes(FOCUS_IN)) onFocusChange(true);
+      if (data.includes(FOCUS_OUT)) onFocusChange(false);
       const remaining = data.replaceAll(FOCUS_IN, "").replaceAll(FOCUS_OUT, "");
-      if (focused || remaining.length > 0) acknowledge();
+      if (remaining.length > 0) onFocusChange(true);
       if (remaining.length === 0) return { consume: true };
       return { data: remaining };
     });
@@ -184,6 +185,7 @@ export default function blinkenlights(pi: ExtensionAPI): void {
   let sessionGeneration = 0;
   let notifyError: (message: string) => void = () => {};
   let pendingAlert = false;
+  let windowFocused = false;
 
   const acknowledge = (): void => {
     coordinator?.acknowledge();
@@ -195,7 +197,7 @@ export default function blinkenlights(pi: ExtensionAPI): void {
       pendingAlert = true;
       return;
     }
-    if (!settings.enabled) {
+    if (!settings.enabled || (settings.suppressWhenFocused && windowFocused)) {
       client.acknowledge();
       pendingAlert = false;
       return;
@@ -278,6 +280,7 @@ export default function blinkenlights(pi: ExtensionAPI): void {
     coordinator = undefined;
     removeFocusTracking?.();
     removeFocusTracking = undefined;
+    windowFocused = false;
     notifyError = (message) => ctx.ui.notify(message, "error");
     settings = settingsStore.load(ctx);
     if (process.platform !== "darwin" || ctx.mode !== "tui") return;
@@ -316,7 +319,10 @@ export default function blinkenlights(pi: ExtensionAPI): void {
       return;
     }
 
-    removeFocusTracking = installFocusTracking(ctx, acknowledge);
+    removeFocusTracking = installFocusTracking(ctx, (focused) => {
+      windowFocused = focused;
+      if (focused) acknowledge();
+    });
   });
 
   pi.on("agent_start", acknowledge);

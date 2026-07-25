@@ -92,6 +92,25 @@ test("project settings override global settings and merge libraries", () => {
   assert.deepEqual(settings.patterns.Project, parsePattern("on 80ms, off 500ms"));
 });
 
+test("suppressWhenFocused defaults on and is overridable per scope", () => {
+  assert.equal(resolveSettings().suppressWhenFocused, true);
+  assert.equal(
+    resolveSettings({}, { suppressWhenFocused: false }).suppressWhenFocused,
+    false,
+  );
+  assert.equal(
+    resolveSettings({ suppressWhenFocused: false }, {}).suppressWhenFocused,
+    false,
+  );
+  assert.equal(
+    resolveSettings(
+      { suppressWhenFocused: true },
+      { suppressWhenFocused: false },
+    ).suppressWhenFocused,
+    false,
+  );
+});
+
 test("waveform previews phase proportions", () => {
   const waveform = renderWaveform(parsePattern("on 500ms, off 500ms"), 10);
   assert.equal(waveform, "█████·····");
