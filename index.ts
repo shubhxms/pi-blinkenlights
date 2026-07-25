@@ -3,13 +3,14 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { CoordinatorClient } from "./coordinator-client.ts";
+import { CoordinatorClient, type FocusMetadata } from "./coordinator-client.ts";
 import { describeDnd, parseDndValue, type DndValue } from "./dnd.ts";
 import type { ResolvedSettings } from "./patterns.ts";
 import { createSettingsStore } from "./settings.ts";
@@ -64,11 +65,16 @@ async function chooseDnd(
   return { scope, until: parseDndValue(value) };
 }
 
-async function buildHelper(pi: ExtensionAPI): Promise<string> {
-  const source = fileURLToPath(new URL("./blinkenlights.c", import.meta.url));
+async function buildNativeHelper(
+  pi: ExtensionAPI,
+  sourceName: string,
+  binaryPrefix: string,
+  frameworks: string[],
+): Promise<string> {
+  const source = fileURLToPath(new URL(`./${sourceName}`, import.meta.url));
   const digest = createHash("sha256").update(readFileSync(source)).digest("hex").slice(0, 16);
   const cacheDirectory = join(homedir(), "Library", "Caches", "pi-blinkenlights");
-  const binary = join(cacheDirectory, `blinkenlights-${digest}`);
+  const binary = join(cacheDirectory, `${binaryPrefix}-${digest}`);
   if (existsSync(binary)) return binary;
 
   mkdirSync(cacheDirectory, { recursive: true });
@@ -82,10 +88,7 @@ async function buildHelper(pi: ExtensionAPI): Promise<string> {
       "-Wall",
       "-Wextra",
       source,
-      "-framework",
-      "CoreFoundation",
-      "-framework",
-      "IOKit",
+      ...frameworks.flatMap((framework) => ["-framework", framework]),
       "-o",
       temporaryBinary,
     ],
@@ -100,6 +103,56 @@ async function buildHelper(pi: ExtensionAPI): Promise<string> {
   renameSync(temporaryBinary, binary);
   chmodSync(binary, 0o755);
   return binary;
+}
+
+function buildHelper(pi: ExtensionAPI): Promise<string> {
+  return buildNativeHelper(pi, "blinkenlights.c", "blinkenlights", ["CoreFoundation", "IOKit"]);
+}
+
+function buildHotkeyHelper(pi: ExtensionAPI): Promise<string> {
+  return buildNativeHelper(pi, "blinkenlights-hotkey.c", "blinkenlights-hotkey", [
+    "ApplicationServices",
+    "CoreFoundation",
+  ]);
+}
+
+function currentTty(): string | undefined {
+  for (const fd of [0, 1, 2]) {
+    try {
+      const target = readlinkSync(`/dev/fd/${fd}`);
+      if (target.startsWith("/dev/tty")) return target;
+    } catch {
+      // Best effort only.
+    }
+  }
+
+  try {
+    const result = spawnSync("lsof", ["-a", "-p", String(process.pid), "-d", "0,1,2", "-Fn"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    if (result.status === 0) {
+      const tty = result.stdout
+        .split("\n")
+        .map((line) => line.slice(1))
+        .find((line) => line.startsWith("/dev/tty"));
+      if (tty) return tty;
+    }
+  } catch {
+    // Best effort only.
+  }
+  return undefined;
+}
+
+function focusMetadata(ctx: ExtensionContext): FocusMetadata {
+  return {
+    pid: process.pid,
+    cwd: ctx.cwd,
+    tty: currentTty(),
+    tmux: process.env.TMUX,
+    tmuxPane: process.env.TMUX_PANE,
+    termProgram: process.env.TERM_PROGRAM,
+  };
 }
 
 function installFocusTracking(ctx: ExtensionContext, acknowledge: () => void): () => void {
@@ -167,6 +220,9 @@ export default function blinkenlights(pi: ExtensionAPI): void {
           (next) => {
             acknowledge();
             settings = next;
+            void coordinator?.configure(settings).catch((error) => {
+              notifyError(error instanceof Error ? error.message : String(error));
+            });
           },
           {
             start: (phases) => coordinator?.preview(phases),
@@ -175,6 +231,21 @@ export default function blinkenlights(pi: ExtensionAPI): void {
         );
       } finally {
         coordinator?.stopPreview();
+      }
+    },
+  });
+
+  pi.registerCommand("blinkenlights:focus", {
+    description: "Focus the terminal session with the active Blinkenlights alert",
+    handler: async (_args, ctx) => {
+      try {
+        if (!coordinator) {
+          ctx.ui.notify("Blinkenlights coordinator is not connected", "error");
+          return;
+        }
+        await coordinator.focus(settings);
+      } catch (error) {
+        ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
       }
     },
   });
@@ -214,8 +285,17 @@ export default function blinkenlights(pi: ExtensionAPI): void {
     let client: CoordinatorClient | undefined;
     try {
       const helper = await buildHelper(pi);
+      let hotkeyHelper: string | undefined;
+      try {
+        hotkeyHelper = await buildHotkeyHelper(pi);
+      } catch (error) {
+        ctx.ui.notify(
+          `Blinkenlights focus hotkey unavailable: ${error instanceof Error ? error.message : String(error)}`,
+          "error",
+        );
+      }
       if (generation !== sessionGeneration) return;
-      client = new CoordinatorClient(helper, ctx.cwd, notifyError);
+      client = new CoordinatorClient(helper, ctx.cwd, notifyError, undefined, hotkeyHelper, focusMetadata(ctx));
       await client.connect();
       await client.syncDnd(settings);
       if (generation !== sessionGeneration) {
@@ -223,6 +303,7 @@ export default function blinkenlights(pi: ExtensionAPI): void {
         return;
       }
       coordinator = client;
+      await coordinator.configure(settings);
       if (pendingAlert) {
         pendingAlert = false;
         void publishAlert();
