@@ -1,11 +1,15 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/hid/IOHIDLib.h>
+#include <IOKit/hid/IOHIDDeviceKeys.h>
+#include <IOKit/hidsystem/IOHIDEventSystemClient.h>
+#include <IOKit/hidsystem/IOHIDServiceClient.h>
 #include <errno.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/utsname.h>
 #include <unistd.h>
 
 #define MIN_PHASE_MS 20
@@ -17,6 +21,22 @@ typedef struct {
   IOHIDElementRef element;
 } CapsLed;
 
+typedef struct {
+  IOHIDEventSystemClientRef client;
+} TahoeLed;
+
+typedef enum {
+  LED_MODE_OFF,
+  LED_MODE_ON,
+  LED_MODE_AUTO,
+} LedMode;
+
+// Exported by IOKit, but intentionally omitted from the public SDK headers.
+// Client type 2 is passive: it can set service properties without intercepting input.
+extern IOHIDEventSystemClientRef IOHIDEventSystemClientCreateWithType(
+    CFAllocatorRef allocator,
+    uint32_t client_type,
+    CFDictionaryRef attributes) __attribute__((weak_import));
 typedef struct {
   bool on;
   int duration_ms;
@@ -53,6 +73,72 @@ static CFMutableDictionaryRef usage_match(bool device, uint32_t page, uint32_t u
   CFRelease(page_number);
   CFRelease(usage_number);
   return match;
+}
+
+static bool is_tahoe_or_later(void) {
+  struct utsname version;
+  if (uname(&version) != 0) return false;
+  char *end = NULL;
+  long major = strtol(version.release, &end, 10);
+  return end != version.release && major >= 25;
+}
+
+static bool cf_value_is_true(CFTypeRef value) {
+  if (!value) return false;
+  if (CFGetTypeID(value) == CFBooleanGetTypeID()) {
+    return CFBooleanGetValue((CFBooleanRef)value);
+  }
+  if (CFGetTypeID(value) == CFNumberGetTypeID()) {
+    int number = 0;
+    return CFNumberGetValue((CFNumberRef)value, kCFNumberIntType, &number) &&
+           number != 0;
+  }
+  return false;
+}
+
+static TahoeLed create_tahoe_led(void) {
+  TahoeLed led = {0};
+  if (!is_tahoe_or_later() || IOHIDEventSystemClientCreateWithType == NULL) {
+    return led;
+  }
+  led.client = IOHIDEventSystemClientCreateWithType(
+      kCFAllocatorDefault, 2, NULL);
+  return led;
+}
+
+static bool set_tahoe_led(const TahoeLed *led, LedMode mode) {
+  if (!led->client) return false;
+
+  CFStringRef value = CFSTR("Auto");
+  if (mode == LED_MODE_ON) value = CFSTR("On");
+  if (mode == LED_MODE_OFF) value = CFSTR("Off");
+
+  CFArrayRef services = IOHIDEventSystemClientCopyServices(led->client);
+  if (!services) return false;
+
+  bool changed = false;
+  for (CFIndex i = 0; i < CFArrayGetCount(services); i++) {
+    IOHIDServiceClientRef service =
+        (IOHIDServiceClientRef)CFArrayGetValueAtIndex(services, i);
+    if (!IOHIDServiceClientConformsTo(
+            service, kHIDPage_GenericDesktop, kHIDUsage_GD_Keyboard)) {
+      continue;
+    }
+
+    CFTypeRef built_in =
+        IOHIDServiceClientCopyProperty(service, CFSTR(kIOHIDBuiltInKey));
+    bool is_built_in = cf_value_is_true(built_in);
+    if (built_in) CFRelease(built_in);
+    if (!is_built_in) continue;
+
+    if (IOHIDServiceClientSetProperty(
+            service, CFSTR("HIDCapsLockLED"), value)) {
+      changed = true;
+    }
+  }
+
+  CFRelease(services);
+  return changed;
 }
 
 static size_t find_caps_leds(IOHIDManagerRef manager, CapsLed **result) {
@@ -121,6 +207,21 @@ static bool set_leds(CapsLed *leds, size_t count, bool on) {
   return changed;
 }
 
+static bool set_output(
+    CapsLed *leds, size_t count, const TahoeLed *tahoe_led, bool on) {
+  bool changed = set_leds(leds, count, on);
+  if (set_tahoe_led(tahoe_led, on ? LED_MODE_ON : LED_MODE_OFF)) {
+    changed = true;
+  }
+  return changed;
+}
+
+static void restore_output(
+    CapsLed *leds, size_t count, const TahoeLed *tahoe_led) {
+  set_leds(leds, count, false);
+  set_tahoe_led(tahoe_led, LED_MODE_AUTO);
+}
+
 static void free_leds(CapsLed *leds, size_t count) {
   for (size_t i = 0; i < count; i++) {
     CFRelease(leds[i].element);
@@ -171,28 +272,35 @@ int main(int argc, char **argv) {
   signal(SIGTERM, stop_running);
   signal(SIGHUP, stop_running);
 
+  TahoeLed tahoe_led = create_tahoe_led();
   IOHIDManagerRef manager =
       IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
   CFMutableDictionaryRef keyboard_match =
       usage_match(true, kHIDPage_GenericDesktop, kHIDUsage_GD_Keyboard);
-  if (!manager || !keyboard_match) {
-    free(phases);
-    return 1;
-  }
 
-  IOHIDManagerSetDeviceMatching(manager, keyboard_match);
-  CFRelease(keyboard_match);
-  if (IOHIDManagerOpen(manager, kIOHIDOptionsTypeNone) != kIOReturnSuccess) {
+  if (manager && keyboard_match) {
+    IOHIDManagerSetDeviceMatching(manager, keyboard_match);
+    if (IOHIDManagerOpen(manager, kIOHIDOptionsTypeNone) !=
+        kIOReturnSuccess) {
+      CFRelease(manager);
+      manager = NULL;
+    }
+  } else if (manager) {
     CFRelease(manager);
-    free(phases);
-    return 1;
+    manager = NULL;
   }
+  if (keyboard_match) CFRelease(keyboard_match);
 
   CapsLed *leds = NULL;
-  size_t led_count = find_caps_leds(manager, &leds);
-  if (led_count == 0 || !set_leds(leds, led_count, phases[0].on)) {
+  size_t led_count = manager ? find_caps_leds(manager, &leds) : 0;
+  if (!set_output(leds, led_count, &tahoe_led, phases[0].on)) {
+    restore_output(leds, led_count, &tahoe_led);
+    if (tahoe_led.client) CFRelease(tahoe_led.client);
     free_leds(leds, led_count);
-    CFRelease(manager);
+    if (manager) {
+      IOHIDManagerClose(manager, kIOHIDOptionsTypeNone);
+      CFRelease(manager);
+    }
     free(phases);
     return 2;
   }
@@ -214,14 +322,17 @@ int main(int argc, char **argv) {
     remaining_ms -= wait_ms;
     if (remaining_ms > 0) {
       phase_index = (phase_index + 1) % phase_count;
-      set_leds(leds, led_count, phases[phase_index].on);
+      set_output(leds, led_count, &tahoe_led, phases[phase_index].on);
     }
   }
 
-  set_leds(leds, led_count, false);
+  restore_output(leds, led_count, &tahoe_led);
+  if (tahoe_led.client) CFRelease(tahoe_led.client);
   free_leds(leds, led_count);
-  IOHIDManagerClose(manager, kIOHIDOptionsTypeNone);
-  CFRelease(manager);
+  if (manager) {
+    IOHIDManagerClose(manager, kIOHIDOptionsTypeNone);
+    CFRelease(manager);
+  }
   free(phases);
   return 0;
 }

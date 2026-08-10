@@ -48,6 +48,12 @@ pi install git:github.com/shubhxms/pi-blinkenlights
 
 Blinkenlights compiles its tiny native helper on first use and caches the resulting binary. Both Apple Silicon and Intel Macs are supported because the helper is built locally.
 
+### macOS Tahoe compatibility
+
+On macOS Tahoe 26 and later, direct writes to the built-in keyboard's HID LED element can report success without changing the light. Blinkenlights therefore uses Tahoe's `HIDCapsLockLED` service override for the built-in keyboard, while retaining direct HID output for external keyboards and older macOS releases.
+
+Apple does not document the Tahoe override as public API. Blinkenlights feature-detects it, restores system-managed `Auto` mode when an alert ends, and fails without touching logical Caps Lock state if the override is unavailable.
+
 ## How it behaves
 
 Blinkenlights raises an alert when:
@@ -164,7 +170,7 @@ Durations accept whole seconds, minutes, hours, or days (`90s`, `30m`, `2h`, `1d
 
 ## Safety and privacy
 
-Blinkenlights talks directly to the keyboard's HID LED element (`usage page 0x08`, `usage 0x02`) through IOKit.
+Blinkenlights uses IOKit to control only the Caps Lock indicator: the public HID LED element (`usage page 0x08`, `usage 0x02`) where it works, and Tahoe's private `HIDCapsLockLED` override for the built-in keyboard.
 
 It does **not**:
 
@@ -174,7 +180,7 @@ It does **not**:
 - contact a network service; or
 - attempt to control the camera privacy light.
 
-The camera light is intentionally unsupported because macOS couples it to actual camera use. If the helper exits or is terminated, the coordinator makes a best-effort final write to switch the LED off.
+The camera light is intentionally unsupported because macOS couples it to actual camera use. If the helper exits or is terminated, the coordinator makes a best-effort final write to switch direct HID LEDs off and restore Tahoe's system-managed `Auto` mode.
 
 ## Development
 

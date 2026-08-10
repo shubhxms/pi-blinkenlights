@@ -287,7 +287,7 @@ function startWorker(selection) {
 				type: "error",
 				message:
 					code === 2
-						? "No writable Caps Lock LED found; macOS may require Input Monitoring permission"
+						? "No controllable Caps Lock LED found; on pre-Tahoe macOS, check Input Monitoring permission"
 						: active.stderr.trim() ||
 							`Blinkenlights helper exited with code ${code}`,
 			});
