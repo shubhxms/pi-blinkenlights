@@ -14,6 +14,7 @@ import { CoordinatorClient, type FocusMetadata } from "./coordinator-client.ts";
 import { describeDnd, parseDndValue, type DndValue } from "./dnd.ts";
 import type { ResolvedSettings } from "./patterns.ts";
 import { createSettingsStore } from "./settings.ts";
+import { isTerminalApplicationFrontmost } from "./terminal-focus.ts";
 
 export { parseDndValue } from "./dnd.ts";
 export {
@@ -197,7 +198,11 @@ export default function blinkenlights(pi: ExtensionAPI): void {
       pendingAlert = true;
       return;
     }
-    if (!settings.enabled || (settings.suppressWhenFocused && windowFocused)) {
+    const suppressForFocus =
+      settings.suppressWhenFocused &&
+      windowFocused &&
+      isTerminalApplicationFrontmost() !== false;
+    if (!settings.enabled || suppressForFocus) {
       client.acknowledge();
       pendingAlert = false;
       return;

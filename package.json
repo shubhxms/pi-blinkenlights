@@ -36,7 +36,8 @@
     "index.ts",
     "patterns.ts",
     "scheduler.mjs",
-    "settings.ts"
+    "settings.ts",
+    "terminal-focus.ts"
   ],
   "scripts": {
     "test": "xcrun clang -std=c11 -Wall -Wextra -Werror -fsyntax-only blinkenlights.c && xcrun clang -std=c11 -Wall -Wextra -Werror -fsyntax-only blinkenlights-hotkey.c && node --check coordinator.mjs && node --check focus.mjs && node --check scheduler.mjs && npm run typecheck --silent && node --test test/*.test.*",
