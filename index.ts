@@ -14,7 +14,10 @@ import { CoordinatorClient, type FocusMetadata } from "./coordinator-client.ts";
 import { describeDnd, parseDndValue, type DndValue } from "./dnd.ts";
 import type { ResolvedSettings } from "./patterns.ts";
 import { createSettingsStore } from "./settings.ts";
-import { isTerminalApplicationFrontmost } from "./terminal-focus.ts";
+import {
+  isTerminalApplicationFrontmost,
+  shouldSuppressForFocus,
+} from "./terminal-focus.ts";
 
 export { parseDndValue } from "./dnd.ts";
 export {
@@ -187,21 +190,46 @@ export default function blinkenlights(pi: ExtensionAPI): void {
   let notifyError: (message: string) => void = () => {};
   let pendingAlert = false;
   let windowFocused = false;
+  let focusPollTimer: ReturnType<typeof setInterval> | undefined;
+  let focusPollExpiry: ReturnType<typeof setTimeout> | undefined;
+
+  const stopFocusPolling = (): void => {
+    if (focusPollTimer) clearInterval(focusPollTimer);
+    if (focusPollExpiry) clearTimeout(focusPollExpiry);
+    focusPollTimer = undefined;
+    focusPollExpiry = undefined;
+  };
 
   const acknowledge = (): void => {
     coordinator?.acknowledge();
     pendingAlert = false;
+    stopFocusPolling();
   };
+  const startFocusPolling = (): void => {
+    stopFocusPolling();
+    focusPollTimer = setInterval(() => {
+      if (isTerminalApplicationFrontmost() === true) acknowledge();
+    }, 500);
+    focusPollTimer.unref();
+    focusPollExpiry = setTimeout(
+      stopFocusPolling,
+      settings.timeoutSeconds * 1_000,
+    );
+    focusPollExpiry.unref();
+  };
+
   const publishAlert = async (): Promise<void> => {
     const client = coordinator;
     if (!client) {
       pendingAlert = true;
       return;
     }
+    const frontmost = windowFocused
+      ? isTerminalApplicationFrontmost()
+      : undefined;
     const suppressForFocus =
       settings.suppressWhenFocused &&
-      windowFocused &&
-      isTerminalApplicationFrontmost() !== false;
+      shouldSuppressForFocus(windowFocused, frontmost);
     if (!settings.enabled || suppressForFocus) {
       client.acknowledge();
       pendingAlert = false;
@@ -210,6 +238,7 @@ export default function blinkenlights(pi: ExtensionAPI): void {
     pendingAlert = false;
     try {
       await client.alert(settings);
+      if (client === coordinator) startFocusPolling();
     } catch (error) {
       if (client === coordinator) {
         notifyError(error instanceof Error ? error.message : String(error));

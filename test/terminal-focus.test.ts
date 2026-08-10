@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { matchesTerminalApplication } from "../terminal-focus.ts";
+import {
+	matchesTerminalApplication,
+	shouldSuppressForFocus,
+} from "../terminal-focus.ts";
 
 test("matches Ghostty frontmost application", () => {
 	assert.equal(
@@ -45,4 +48,11 @@ test("returns undefined for an unknown terminal", () => {
 		),
 		undefined,
 	);
+});
+
+test("frontmost app corrects stale terminal focus", () => {
+	assert.equal(shouldSuppressForFocus(false, true), false);
+	assert.equal(shouldSuppressForFocus(true, false), false);
+	assert.equal(shouldSuppressForFocus(true, true), true);
+	assert.equal(shouldSuppressForFocus(true, undefined), true);
 });

@@ -24,6 +24,13 @@ export function matchesTerminalApplication(
 	return undefined;
 }
 
+export function shouldSuppressForFocus(
+	reportedFocused: boolean,
+	applicationFrontmost: boolean | undefined,
+): boolean {
+	return reportedFocused && applicationFrontmost !== false;
+}
+
 export function isTerminalApplicationFrontmost(
 	termProgram = process.env.TERM_PROGRAM,
 ): boolean | undefined {
