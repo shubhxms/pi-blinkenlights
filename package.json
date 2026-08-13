@@ -32,10 +32,13 @@
     "coordinator-client.ts",
     "coordinator.mjs",
     "focus.mjs",
+    "focus-tracking.ts",
     "dnd.ts",
     "index.ts",
+    "native-helpers.ts",
     "patterns.ts",
     "scheduler.mjs",
+    "runtime.ts",
     "settings.ts",
     "terminal-focus.ts"
   ],

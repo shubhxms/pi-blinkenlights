@@ -9,6 +9,7 @@ import {
   renderWaveform,
   resolveSettings,
 } from "../index.ts";
+import { shouldBlink } from "../runtime.ts";
 
 
 test("timeout defaults to five minutes", () => {
@@ -114,4 +115,13 @@ test("suppressWhenFocused defaults on and is overridable per scope", () => {
 test("waveform previews phase proportions", () => {
   const waveform = renderWaveform(parsePattern("on 500ms, off 500ms"), 10);
   assert.equal(waveform, "█████·····");
+});
+
+test("blink decision keeps focus suppression explicit", () => {
+  assert.equal(shouldBlink(false, true, true, true), false);
+  assert.equal(shouldBlink(true, false, true, true), true);
+  assert.equal(shouldBlink(true, true, false, true), true);
+  assert.equal(shouldBlink(true, true, true, true), false);
+  assert.equal(shouldBlink(true, true, true, false), true);
+  assert.equal(shouldBlink(true, true, true, undefined), false);
 });
